@@ -2,5 +2,8 @@ services:
   - type: web
     name: barcode-live
     env: python
-    buildCommand: apt-get update && apt-get install -y libzbar0 && pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    packages:
+      - libzbar0
