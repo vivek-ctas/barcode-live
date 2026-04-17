@@ -1,11 +1,14 @@
 from flask import Flask, request, jsonify
-import cv2, numpy as np, time, datetime, osimport cv2, numpy as np, time, datetime
+import cv2
+import numpy as np
+import time
+import datetime
+import os
 from collections import deque
 
 app = Flask(__name__)
 metrics = deque(maxlen=50)
 OUTPUT = "scans.txt"
-ALLOWED = {"CODE128","EAN13","EAN8","UPCA","UPCE","CODE39","CODE93","I25"}
 
 detector = cv2.barcode_BarcodeDetector()
 
