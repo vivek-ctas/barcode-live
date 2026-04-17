@@ -40,7 +40,7 @@ body{font-family:Arial,sans-serif;background:#1a1a1a;color:#fff;padding:20px;tex
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 <div>
-  <button class="btn" onclick="startScan()">▶ START AUTO SCAN</button>
+  <button class="btn" onclick="startScan()">▶ STARTin AUTO SCAN</button>
   <button class="btn" onclick="stopScan()">⏸ STOP</button>
   <button class="btn" onclick="scanOnce()">📸 SCAN ONCE</button>
 </div>
