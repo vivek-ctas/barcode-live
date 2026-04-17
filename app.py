@@ -1,34 +1,18 @@
 from flask import Flask, request, jsonify
-import cv2
-import numpy as np
-import time
-import datetime
-import os
+from pyzbar import pyzbar
+import cv2, numpy as np, time, datetime
 from collections import deque
 
 app = Flask(__name__)
 metrics = deque(maxlen=50)
 OUTPUT = "scans.txt"
-
-detector = cv2.barcode_BarcodeDetector()
+ALLOWED = {"CODE128","EAN13","EAN8","UPCA","UPCE","CODE39","CODE93","I25"}
 
 def decode(img_bytes):
     nparr = np.frombuffer(img_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-
-    ok, decoded_info, decoded_types, points = detector.detectAndDecode(img)
-
-    results = []
-
-    if ok:
-        for data, btype in zip(decoded_info, decoded_types):
-            if data:
-                results.append({
-                    "type": str(btype),
-                    "data": data.strip()
-                })
-
-    return results
+    codes = pyzbar.decode(img)
+    return [b for b in codes if b.type in ALLOWED and b.data]
 
 HTML = '''<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -174,17 +158,7 @@ async function performScan() {
     try {
       const t0 = performance.now();
       const response = await fetch('/scan', { method: 'POST', body: formData });
-      const text = await response.text();
-      let data;
-
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.error("Not JSON response:", text);
-        document.getElementById('result').innerHTML =
-          '<span class="err">❌ Server returned invalid response</span>';
-        return;
-      }
+      const data = await response.json();
       const ms = (performance.now() - t0).toFixed(0);
       
       document.getElementById('tTime').textContent = ms + ' ms';
@@ -231,63 +205,33 @@ def index():
     return HTML
 
 @app.route('/scan', methods=['POST'])
-@app.route('/scan', methods=['POST'])
 def scan():
-    try:
-        t0 = time.time()
-
-        if 'image' not in request.files:
-            return jsonify({"success": False, "error": "No image uploaded"}), 400
-
-        img = request.files['image'].read()
-        codes = decode(img)
-
-        total_ms = (time.time() - t0) * 1000
-        success = len(codes) > 0
-
-        result = {
-            "success": success,
-            "total_time_ms": round(total_ms, 1),
-            "barcodes": []
-        }
-
-        if success:
-            b = codes[0]
-            data = b["data"]
-            barcode_type = b["type"]
-
-            ts = datetime.datetime.now().strftime("%H:%M:%S")
-
-            with open(OUTPUT, "a", buffering=1) as f:
-                f.write(f"{ts} | {barcode_type} | {data} | {total_ms:.1f}ms\n")
-
-            result["barcodes"].append({
-                "type": barcode_type,
-                "data": data
-            })
-
-        metrics.append({"success": success, "time": total_ms})
-
-        if len(metrics) >= 5:
-            recent = list(metrics)[-10:]
-            result["stats"] = {
-                "success_rate_10": round(
-                    sum(1 for m in recent if m["success"]) / len(recent) * 100, 1
-                ),
-                "avg_time_ms": round(
-                    sum(m["time"] for m in recent) / len(recent), 1
-                )
-            }
-
-        return jsonify(result)
-
-    except Exception as e:
-        # VERY IMPORTANT: never return HTML error pages
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+    t0 = time.time()
+    if 'image' not in request.files: 
+        return jsonify({"error":"No image"}), 400
+    img = request.files['image'].read()
+    codes = decode(img)
+    total_ms = (time.time() - t0) * 1000
+    success = len(codes) > 0
+    result = {"success": success, "total_time_ms": round(total_ms, 1), "barcodes": []}
     
+    if success:
+        b = codes[0]
+        data = b.data.decode("utf-8", errors="ignore").strip()
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        with open(OUTPUT, "a", buffering=1) as f: 
+            f.write(f"{ts} | {b.type} | {data} | {total_ms:.1f}ms\n")
+        result["barcodes"].append({"type": b.type, "data": data})
+    
+    metrics.append({"success": success, "time": total_ms})
+    if len(metrics) >= 5:
+        recent = list(metrics)[-10:]
+        result["stats"] = {
+            "success_rate_10": round(sum(1 for m in recent if m["success"]) / len(recent) * 100, 1), 
+            "avg_time_ms": round(sum(m["time"] for m in recent) / len(recent), 1)
+        }
+    return jsonify(result)
+
 @app.route('/stats')
 def stats():
     if not metrics: 
@@ -301,5 +245,12 @@ def stats():
     })
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    import socket
+    ip = socket.gethostbyname(socket.gethostname())
+
+    print("\n" + "="*50)
+    print(" PC BARCODE SCANNER")
+    print(f" Open on phone: http://{ip}:5000")
+    print(" Results: scans.txt")
+    print("="*50 + "\n")
+    app.run(host='0.0.0.0', port=5000, debug=False)
