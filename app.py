@@ -174,7 +174,17 @@ async function performScan() {
     try {
       const t0 = performance.now();
       const response = await fetch('/scan', { method: 'POST', body: formData });
-      const data = await response.json();
+      const text = await response.text();
+      let data;
+
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error("Not JSON response:", text);
+        document.getElementById('result').innerHTML =
+          '<span class="err">❌ Server returned invalid response</span>';
+        return;
+      }
       const ms = (performance.now() - t0).toFixed(0);
       
       document.getElementById('tTime').textContent = ms + ' ms';
@@ -221,40 +231,63 @@ def index():
     return HTML
 
 @app.route('/scan', methods=['POST'])
+@app.route('/scan', methods=['POST'])
 def scan():
-    t0 = time.time()
-    if 'image' not in request.files: 
-        return jsonify({"error":"No image"}), 400
-    img = request.files['image'].read()
-    codes = decode(img)
-    total_ms = (time.time() - t0) * 1000
-    success = len(codes) > 0
-    result = {"success": success, "total_time_ms": round(total_ms, 1), "barcodes": []}
-    
-    if success:
-        b = codes[0]
-        data = b["data"]
-        barcode_type = b["type"]
+    try:
+        t0 = time.time()
 
-        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        if 'image' not in request.files:
+            return jsonify({"success": False, "error": "No image uploaded"}), 400
 
-        with open(OUTPUT, "a", buffering=1) as f:
-            f.write(f"{ts} | {barcode_type} | {data} | {total_ms:.1f}ms\n")
+        img = request.files['image'].read()
+        codes = decode(img)
 
-        result["barcodes"].append({
-            "type": barcode_type,
-            "data": data
-        })
+        total_ms = (time.time() - t0) * 1000
+        success = len(codes) > 0
 
-    metrics.append({"success": success, "time": total_ms})
-    if len(metrics) >= 5:
-        recent = list(metrics)[-10:]
-        result["stats"] = {
-            "success_rate_10": round(sum(1 for m in recent if m["success"]) / len(recent) * 100, 1), 
-            "avg_time_ms": round(sum(m["time"] for m in recent) / len(recent), 1)
+        result = {
+            "success": success,
+            "total_time_ms": round(total_ms, 1),
+            "barcodes": []
         }
-    return jsonify(result)
 
+        if success:
+            b = codes[0]
+            data = b["data"]
+            barcode_type = b["type"]
+
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+
+            with open(OUTPUT, "a", buffering=1) as f:
+                f.write(f"{ts} | {barcode_type} | {data} | {total_ms:.1f}ms\n")
+
+            result["barcodes"].append({
+                "type": barcode_type,
+                "data": data
+            })
+
+        metrics.append({"success": success, "time": total_ms})
+
+        if len(metrics) >= 5:
+            recent = list(metrics)[-10:]
+            result["stats"] = {
+                "success_rate_10": round(
+                    sum(1 for m in recent if m["success"]) / len(recent) * 100, 1
+                ),
+                "avg_time_ms": round(
+                    sum(m["time"] for m in recent) / len(recent), 1
+                )
+            }
+
+        return jsonify(result)
+
+    except Exception as e:
+        # VERY IMPORTANT: never return HTML error pages
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+    
 @app.route('/stats')
 def stats():
     if not metrics: 
