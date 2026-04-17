@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
-from pyzbar import pyzbar
-import cv2, numpy as np, time, datetime
+import cv2, numpy as np, time, datetime, osimport cv2, numpy as np, time, datetime
 from collections import deque
 
 app = Flask(__name__)
@@ -8,11 +7,25 @@ metrics = deque(maxlen=50)
 OUTPUT = "scans.txt"
 ALLOWED = {"CODE128","EAN13","EAN8","UPCA","UPCE","CODE39","CODE93","I25"}
 
+detector = cv2.barcode_BarcodeDetector()
+
 def decode(img_bytes):
     nparr = np.frombuffer(img_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-    codes = pyzbar.decode(img)
-    return [b for b in codes if b.type in ALLOWED and b.data]
+
+    ok, decoded_info, decoded_types, points = detector.detectAndDecode(img)
+
+    results = []
+
+    if ok:
+        for data, btype in zip(decoded_info, decoded_types):
+            if data:
+                results.append({
+                    "type": str(btype),
+                    "data": data.strip()
+                })
+
+    return results
 
 HTML = '''<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -217,12 +230,19 @@ def scan():
     
     if success:
         b = codes[0]
-        data = b.data.decode("utf-8", errors="ignore").strip()
+        data = b["data"]
+        barcode_type = b["type"]
+
         ts = datetime.datetime.now().strftime("%H:%M:%S")
-        with open(OUTPUT, "a", buffering=1) as f: 
-            f.write(f"{ts} | {b.type} | {data} | {total_ms:.1f}ms\n")
-        result["barcodes"].append({"type": b.type, "data": data})
-    
+
+        with open(OUTPUT, "a", buffering=1) as f:
+            f.write(f"{ts} | {barcode_type} | {data} | {total_ms:.1f}ms\n")
+
+        result["barcodes"].append({
+            "type": barcode_type,
+            "data": data
+        })
+
     metrics.append({"success": success, "time": total_ms})
     if len(metrics) >= 5:
         recent = list(metrics)[-10:]
@@ -245,12 +265,5 @@ def stats():
     })
 
 if __name__ == '__main__':
-    import socket
-    ip = socket.gethostbyname(socket.gethostname())
-
-    print("\n" + "="*50)
-    print(" PC BARCODE SCANNER")
-    print(f" Open on phone: http://{ip}:5000")
-    print(" Results: scans.txt")
-    print("="*50 + "\n")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
